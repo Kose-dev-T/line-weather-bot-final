@@ -50,7 +50,6 @@ def create_quick_reply_dict(options):
         options = options[:13]
     items = []
     for opt in options:
-        # 選択肢が空文字列でないことを確認
         if opt:
             items.append({
                 "type": "action",
@@ -66,25 +65,22 @@ def reply_to_line(reply_token, text, quick_reply_dict=None):
     }
     
     message_payload = {"type": "text", "text": text}
+    # quick_reply_dictが存在し、かつitemsリストが空でないことを確認
     if quick_reply_dict and quick_reply_dict.get("items"):
         message_payload["quickReply"] = quick_reply_dict
     
     body = {"replyToken": reply_token, "messages": [message_payload]}
     
-    # --- ▼▼▼ デバッグ機能 ▼▼▼ ---
     print("--- [DEBUG] Sending reply to LINE API ---")
     print(f"Request Body: {json.dumps(body, ensure_ascii=False, indent=2)}")
-    # --- ▲▲▲ デバッグ機能 ▲▲▲ ---
 
     try:
         response = requests.post("https://api.line.me/v2/bot/message/reply", headers=headers, data=json.dumps(body, ensure_ascii=False).encode('utf-8'))
         
-        # --- ▼▼▼ デバッグ機能 ▼▼▼ ---
         print("--- [DEBUG] Received response from LINE API ---")
         print(f"Status Code: {response.status_code}")
         print(f"Response Body: {response.text}")
         print("-----------------------------------------")
-        # --- ▲▲▲ デバッグ機能 ▲▲▲ ---
         
         response.raise_for_status()
         print("--- [SUCCESS] LINEへの返信が成功しました。 ---")
@@ -118,7 +114,15 @@ def start_location_setting(event):
         return
 
     area_names = [area.get('title') for area in area_data.findall('.//area')]
+    # ▼▼▼ デバッグ機能 ▼▼▼
+    print(f"--- [DEBUG] Found Area Names: {area_names} ---")
+    # ▲▲▲ デバッグ機能 ▲▲▲
+    
     quick_reply = create_quick_reply_dict(area_names)
+    # ▼▼▼ デバッグ機能 ▼▼▼
+    print(f"--- [DEBUG] Created Quick Reply Dict: {quick_reply} ---")
+    # ▲▲▲ デバッグ機能 ▲▲▲
+
     reply_to_line(event.reply_token, "お住まいのエリアを選択してください。", quick_reply)
 
 # --- イベントごとの処理 ---
@@ -180,7 +184,6 @@ def handle_message(event):
             reply_to_line(event.reply_token, "ボタンから正しい都市名を選択してください。")
             
     else:
-        # 通常時は何も返さない（オンデマンド機能は削除）
         reply_to_line(event.reply_token, "メニューの「地点を変更する」から、通知先を設定してください。")
 
 if __name__ == "__main__":
