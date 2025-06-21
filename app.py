@@ -113,13 +113,14 @@ def start_location_setting(event):
         reply_to_line(event.reply_token, "地域情報の取得に失敗しました。")
         return
 
-    # 【修正】XMLのルート要素から'area'タグを探すように修正
-    channel = area_data.find('channel')
+    # 【修正】XMLのパスをより正確に指定
+    channel = area_data.find('.//channel') # まずchannelタグを探す
     if channel is None:
-        reply_to_line(event.reply_token, "地域情報の解析に失敗しました。")
+        reply_to_line(event.reply_token, "地域情報の解析に失敗しました(channel not found)。")
         return
         
-    area_names = [area.get('title') for area in channel.findall('area')]
+    area_names = [area.get('title') for area in channel.findall('area')] # channelの中からareaを探す
+        
     print(f"--- [DEBUG] Found Area Names: {area_names} ---")
     
     quick_reply = create_quick_reply_dict(area_names)
@@ -153,14 +154,14 @@ def handle_message(event):
         return
 
     # 【修正】XMLのパスをより正確に指定
-    channel = area_data.find('channel')
+    channel = area_data.find('.//channel')
     if channel is None:
-        reply_to_line(event.reply_token, "地域情報の解析に失敗しました。")
+        reply_to_line(event.reply_token, "地域情報の解析に失敗しました(channel not found)。")
         return
 
     if user_state == 'waiting_for_area':
         selected_area = channel.find(f"area[@title='{user_message}']")
-        if selected_area:
+        if selected_area is not None:
             pref_names = [pref.get('title') for pref in selected_area.findall('pref')]
             quick_reply = create_quick_reply_dict(pref_names)
             database.set_user_state(user_id, f'waiting_for_pref:{user_message}')
@@ -171,8 +172,8 @@ def handle_message(event):
     elif user_state and user_state.startswith('waiting_for_pref:'):
         area_name = user_state.split(':')[1]
         selected_area = channel.find(f"area[@title='{area_name}']")
-        selected_pref = selected_area.find(f"pref[@title='{user_message}']") if selected_area else None
-        if selected_pref:
+        selected_pref = selected_area.find(f"pref[@title='{user_message}']") if selected_area is not None else None
+        if selected_pref is not None:
             city_names = [city.get('title') for city in selected_pref.findall('city')]
             quick_reply = create_quick_reply_dict(city_names)
             database.set_user_state(user_id, f'waiting_for_city:{user_message}')
@@ -183,7 +184,7 @@ def handle_message(event):
     elif user_state and user_state.startswith('waiting_for_city:'):
         pref_name = user_state.split(':')[1]
         # 【修正】XMLのパスをより正確に指定
-        selected_city_element = channel.find(f".//pref[@title='{pref_name}']/city[@title='{user_message}']")
+        selected_city_element = area_data.find(f".//pref[@title='{pref_name}']/city[@title='{user_message}']")
         if selected_city_element is not None:
             city_id = selected_city_element.get('id')
             city_name = selected_city_element.get('title')
