@@ -84,6 +84,6 @@ def send_daily_forecasts():
 
 if __name__ == "__main__":
     if not CHANNEL_ACCESS_TOKEN:
-        print("エラー: .envファイルに必要なキーが設定されていません。")
+        print("エラー: .envファイルにLINE_CHANNEL_ACCESS_TOKENが設定されていません。")
     else:
         send_daily_forecasts()
