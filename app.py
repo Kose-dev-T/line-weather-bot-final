@@ -5,11 +5,6 @@ from flask import Flask, request, abort
 from linebot.v3 import WebhookHandler
 from linebot.v3.exceptions import InvalidSignatureError
 from linebot.v3.webhooks import MessageEvent, TextMessageContent, FollowEvent, PostbackEvent
-# QuickReply機能に必要な部品をインポート
-from linebot.v3.messaging import (
-    Configuration, ApiClient, MessagingApi, ReplyMessageRequest, TextMessage,
-    QuickReply, QuickReplyButton, MessageAction
-)
 from datetime import datetime
 from dotenv import load_dotenv
 import database
@@ -49,28 +44,35 @@ def get_area_data():
         print(f"地域・都市リストの取得に失敗しました: {e}")
         return None
 
-def create_quick_reply(options):
-    """選択肢のリストからQuickReplyボタンを作成する関数"""
+def create_quick_reply_dict(options):
+    """【修正】選択肢のリストからQuickReplyのJSON辞書を作成する"""
     if len(options) > 13:
-        options = options[:13] # LINEのQuickReplyは最大13個
-    items = [QuickReplyButton(action=MessageAction(label=opt, text=opt)) for opt in options]
-    return QuickReply(items=items)
+        options = options[:13]
+    
+    items = []
+    for opt in options:
+        items.append({
+            "type": "action",
+            "action": {
+                "type": "message",
+                "label": opt,
+                "text": opt
+            }
+        })
+    return {"items": items}
 
-def reply_to_line(reply_token, text, quick_reply=None):
-    """LINEにメッセージを返信する関数"""
+def reply_to_line(reply_token, text, quick_reply_dict=None):
+    """【修正】LINEにメッセージを返信する関数"""
     headers = {"Content-Type": "application/json; charset=UTF-8", "Authorization": f"Bearer {CHANNEL_ACCESS_TOKEN}"}
     
     message_payload = {
         "type": "text",
         "text": text
     }
-    if quick_reply:
-        message_payload["quickReply"] = quick_reply.to_dict()
+    if quick_reply_dict:
+        message_payload["quickReply"] = quick_reply_dict
     
-    body = {
-        "replyToken": reply_token,
-        "messages": [message_payload]
-    }
+    body = {"replyToken": reply_token, "messages": [message_payload]}
     
     try:
         response = requests.post("https://api.line.me/v2/bot/message/reply", headers=headers, data=json.dumps(body, ensure_ascii=False).encode('utf-8'))
@@ -96,12 +98,12 @@ def start_location_setting(event):
     
     area_data = get_area_data()
     if not area_data:
-        reply_to_line(event.reply_token, "地域情報の取得に失敗しました。しばらくしてからお試しください。")
+        reply_to_line(event.reply_token, "地域情報の取得に失敗しました。")
         return
 
     area_names = [area.get('title') for area in area_data.findall('.//area')]
-    quick_reply = create_quick_reply(area_names)
-    reply_to_line(event.reply_token, "お住まいのエリアを選択してください。", quick_reply)
+    quick_reply_dict = create_quick_reply_dict(area_names)
+    reply_to_line(event.reply_token, "お住まいのエリアを選択してください。", quick_reply_dict)
 
 # --- イベントごとの処理 ---
 @handler.add(FollowEvent)
@@ -128,9 +130,9 @@ def handle_message(event):
         selected_area = area_data.find(f".//area[@title='{user_message}']")
         if selected_area:
             pref_names = [pref.get('title') for pref in selected_area.findall('pref')]
-            quick_reply = create_quick_reply(pref_names)
+            quick_reply_dict = create_quick_reply_dict(pref_names)
             database.set_user_state(user_id, f'waiting_for_pref:{user_message}')
-            reply_to_line(event.reply_token, "次に都道府県を選択してください。", quick_reply)
+            reply_to_line(event.reply_token, "次に都道府県を選択してください。", quick_reply_dict)
         else:
             reply_to_line(event.reply_token, "ボタンから正しいエリア名を選択してください。")
     elif user_state and user_state.startswith('waiting_for_pref:'):
@@ -139,9 +141,9 @@ def handle_message(event):
         selected_pref = selected_area.find(f".//pref[@title='{user_message}']") if selected_area else None
         if selected_pref:
             city_names = [city.get('title') for city in selected_pref.findall('city')]
-            quick_reply = create_quick_reply(city_names)
+            quick_reply_dict = create_quick_reply_dict(city_names)
             database.set_user_state(user_id, f'waiting_for_city:{user_message}')
-            reply_to_line(event.reply_token, "最後に都市名を選択してください。", quick_reply)
+            reply_to_line(event.reply_token, "最後に都市名を選択してください。", quick_reply_dict)
         else:
             reply_to_line(event.reply_token, "ボタンから正しい都道府県名を選択してください。")
     elif user_state and user_state.startswith('waiting_for_city:'):
