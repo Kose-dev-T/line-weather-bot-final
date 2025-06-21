@@ -104,17 +104,23 @@ def callback():
     return 'OK'
 
 # --- LINEイベントのハンドラ ---
+
 @handler.add(FollowEvent)
 def handle_follow(event):
-    reply_messages = [{"type": "text", "text": "友達追加ありがとうございます！\n下のメニューから「通知地点の変更」をタップして、毎日の通知を受け取る地点を登録してください。"}]
+    user_id = event.source.user_id
+    
+    # 友達追加と同時に、ユーザーの状態を「地点入力を待っている状態」に設定
+    database.set_user_state(user_id, 'waiting_for_location')
+    
+    # 地点登録を促すメッセージを送信
+    reply_messages = [{"type": "text", "text": "友達追加ありがとうございます！\n早速ですが、毎日の天気予報を通知する地点を教えてください。\n（例: 大阪市, 新宿区）"}]
     send_line_message(event.reply_token, reply_messages)
 
 @handler.add(PostbackEvent)
 def handle_postback(event):
     user_id = event.source.user_id
     if event.postback.data == 'action=register_location':
-        reply_messages = [{"type": "text", "text": "通知を受け取りたい地名（例: 大阪市, 近江八幡市）を教えてください。"}]
-        # 応答速度が原因である可能性を考慮し、先に返信してからDBを更新する
+        reply_messages = [{"type": "text", "text": "通知を受け取りたい地名（例: 大阪市, 新宿区）を教えてください。"}]
         send_line_message(event.reply_token, reply_messages)
         database.set_user_state(user_id, 'waiting_for_location')
 
@@ -138,7 +144,7 @@ def handle_message(event):
             forecast_message = get_open_meteo_forecast_message_dict(coords['lat'], coords['lon'], user_message)
             send_line_message(event.reply_token, [forecast_message])
         else:
-            reply_message = {"type": "text", "text": "地名が見つかりませんでした。メニューの「通知地点の変更」から地点を登録するか、地名を入力して天気を検索できます。"}
+            reply_message = {"type": "text", "text": "地名が見つかりませんでした。メニューの「登録地点を変更」から地点を登録するか、地名を入力して天気を検索できます。"}
             send_line_message(event.reply_token, [reply_message])
 
 # --- アプリケーションの実行 ---
