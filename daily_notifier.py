@@ -5,11 +5,9 @@ from datetime import datetime
 from dotenv import load_dotenv
 import database
 
-# --- 初期設定 ---
 load_dotenv()
 CHANNEL_ACCESS_TOKEN = os.environ.get("LINE_CHANNEL_ACCESS_TOKEN")
 
-# --- 補助関数群 ---
 def get_livedoor_forecast_message_dict(city_id, city_name):
     api_url = f"https://weather.tsukumijima.net/api/forecast?city={city_id}"
     try:
@@ -18,15 +16,12 @@ def get_livedoor_forecast_message_dict(city_id, city_name):
         data = response.json()
         today_forecast = data["forecasts"][0]
         weather = today_forecast["telop"]
-        temp_max_obj = today_forecast["temperature"]["max"]
-        temp_min_obj = today_forecast["temperature"]["min"]
-        temp_max = temp_max_obj["celsius"] if temp_max_obj else "--"
-        temp_min = temp_min_obj["celsius"] if temp_min_obj else "--"
+        temp_max = today_forecast["temperature"]["max"]["celsius"] if today_forecast["temperature"]["max"] else "--"
+        temp_min = today_forecast["temperature"]["min"]["celsius"] if today_forecast["temperature"]["min"] else "--"
         chance_of_rain = " / ".join(today_forecast["chanceOfRain"].values())
-        flex_message = {
+        return {
             "type": "flex", "altText": f"{city_name}の天気予報",
-            "contents": {
-                "type": "bubble", "direction": 'ltr',
+            "contents": { "type": "bubble", "direction": 'ltr',
                 "header": {"type": "box", "layout": "vertical", "contents": [{"type": "text", "text": "今日の天気予報", "weight": "bold", "size": "xl", "color": "#FFFFFF", "align": "center"}], "backgroundColor": "#00B900", "paddingTop": "12px", "paddingBottom": "12px"},
                 "body": {"type": "box", "layout": "vertical", "spacing": "md", "contents": [
                     {"type": "box", "layout": "vertical", "contents": [
@@ -50,7 +45,6 @@ def get_livedoor_forecast_message_dict(city_id, city_name):
                 ]}
             }
         }
-        return flex_message
     except Exception as e:
         print(f"Livedoor Forecast API Error: {e}")
         return {"type": "text", "text": "天気情報の取得に失敗しました。"}
@@ -84,6 +78,6 @@ def send_daily_forecasts():
 
 if __name__ == "__main__":
     if not CHANNEL_ACCESS_TOKEN:
-        print("エラー: .envファイルにLINE_CHANNEL_ACCESS_TOKENが設定されていません。")
+        print("エラー: .envファイルに必要なキーが設定されていません。")
     else:
         send_daily_forecasts()
