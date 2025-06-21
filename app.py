@@ -8,100 +8,84 @@ from linebot.v3.webhooks import MessageEvent, TextMessageContent, FollowEvent, P
 from datetime import datetime
 from dotenv import load_dotenv
 import database
-import xml.etree.ElementTree as ET
 
 # --- 初期設定 ---
 load_dotenv()
 app = Flask(__name__)
+
 with app.app_context():
     database.init_db()
 
 CHANNEL_ACCESS_TOKEN = os.environ.get("LINE_CHANNEL_ACCESS_TOKEN")
 CHANNEL_SECRET = os.environ.get("LINE_CHANNEL_SECRET")
+OPENWEATHER_API_KEY = os.environ.get("OPENWEATHER_API_KEY") # 地名→緯度経度検索に必要
+
 handler = WebhookHandler(CHANNEL_SECRET)
-AREA_DATA_CACHE = None
 
 # --- 補助関数群 ---
-def get_area_data():
-    global AREA_DATA_CACHE
-    if AREA_DATA_CACHE is not None: return AREA_DATA_CACHE
-    try:
-        response = requests.get("https://weather.tsukumijima.net/primary_area.xml")
-        response.raise_for_status()
-        try: AREA_DATA_CACHE = ET.fromstring(response.content.decode('euc-jp'))
-        except: AREA_DATA_CACHE = ET.fromstring(response.content.decode('utf-8'))
-        print("地域・都市リストをキャッシュしました。")
-        return AREA_DATA_CACHE
-    except Exception as e:
-        print(f"地域リストの取得エラー: {e}")
-        return None
 
-def create_quick_reply_dict(options):
-    items = [{"type": "action", "action": {"type": "message", "label": opt, "text": opt}} for opt in options[:13]]
-    return {"items": items}
-
-def send_line_message(token, messages, is_push=False, user_id=None):
-    """requestsを使って、LINEにメッセージを送信する汎用関数"""
-    headers = {"Content-Type": "application/json", "Authorization": f"Bearer {CHANNEL_ACCESS_TOKEN}"}
-    
-    if is_push:
-        url = "https://api.line.me/v2/bot/message/push"
-        body = {"to": user_id, "messages": messages}
-    else:
-        url = "https://api.line.me/v2/bot/message/reply"
-        body = {"replyToken": token, "messages": messages}
-
-    try:
-        response = requests.post(url, headers=headers, data=json.dumps(body, ensure_ascii=False).encode('utf-8'))
-        response.raise_for_status()
-        print(f"LINEへのメッセージ送信が成功しました。 User: {user_id}, Type: {'Push' if is_push else 'Reply'}")
-    except requests.exceptions.RequestException as e:
-        print(f"LINE送信エラー: {e}\n応答内容: {e.response.text if e.response else 'N/A'}")
-
-
-def get_livedoor_forecast_message_dict(city_id, city_name):
-    """指定された都市IDの天気予報を取得し、Flex MessageのJSON辞書を返す"""
-    api_url = f"https://weather.tsukumijima.net/api/forecast?city={city_id}"
+def get_coords_from_city(city_name):
+    """地名から緯度と経度を取得する関数 (OpenWeatherMap APIを利用)"""
+    api_url = f"http://api.openweathermap.org/geo/1.0/direct?q={city_name},JP&limit=1&appid={OPENWEATHER_API_KEY}"
     try:
         response = requests.get(api_url)
         response.raise_for_status()
         data = response.json()
-        today_forecast = data["forecasts"][0]
-        weather = today_forecast["telop"]
-        temp_max_obj = today_forecast["temperature"]["max"]
-        temp_min_obj = today_forecast["temperature"]["min"]
-        temp_max = temp_max_obj["celsius"] if temp_max_obj else "--"
-        temp_min = temp_min_obj["celsius"] if temp_min_obj else "--"
-        chance_of_rain = " / ".join(today_forecast["chanceOfRain"].values())
-        return {
-            "type": "flex", "altText": f"{city_name}の天気予報",
-            "contents": { "type": "bubble", "direction": 'ltr',
-                "header": {"type": "box", "layout": "vertical", "contents": [{"type": "text", "text": "今日の天気予報", "weight": "bold", "size": "xl", "color": "#FFFFFF", "align": "center"}], "backgroundColor": "#00B900", "paddingTop": "12px", "paddingBottom": "12px"},
-                "body": {"type": "box", "layout": "vertical", "spacing": "md", "contents": [
-                    {"type": "box", "layout": "vertical", "contents": [
-                        {"type": "text", "text": city_name, "size": "lg", "weight": "bold", "color": "#00B900"},
-                        {"type": "text", "text": today_forecast["date"], "size": "sm", "color": "#AAAAAA"}]},
-                    {"type": "separator", "margin": "md"},
-                    {"type": "box", "layout": "vertical", "margin": "lg", "spacing": "sm", "contents": [
-                        {"type": "box", "layout": "baseline", "spacing": "sm", "contents": [
-                            {"type": "text", "text": "天気", "color": "#AAAAAA", "size": "sm", "flex": 2},
-                            {"type": "text", "text": weather, "wrap": True, "color": "#666666", "size": "sm", "flex": 5}]},
-                        {"type": "box", "layout": "baseline", "spacing": "sm", "contents": [
-                            {"type": "text", "text": "最高気温", "color": "#AAAAAA", "size": "sm", "flex": 2},
-                            {"type": "text", "text": f"{temp_max}°C", "wrap": True, "color": "#666666", "size": "sm", "flex": 5}]},
-                        {"type": "box", "layout": "baseline", "spacing": "sm", "contents": [
-                            {"type": "text", "text": "最低気温", "color": "#AAAAAA", "size": "sm", "flex": 2},
-                            {"type": "text", "text": f"{temp_min}°C", "wrap": True, "color": "#666666", "size": "sm", "flex": 5}]},
-                        {"type": "box", "layout": "baseline", "spacing": "sm", "contents": [
-                            {"type": "text", "text": "降水確率", "color": "#AAAAAA", "size": "sm", "flex": 2},
-                            {"type": "text", "text": chance_of_rain, "wrap": True, "color": "#666666", "size": "sm", "flex": 5}]}
-                    ]}
-                ]}
-            }
-        }
+        if data:
+            return {"lat": data[0]["lat"], "lon": data[0]["lon"]}
+        return None
     except Exception as e:
-        print(f"Livedoor Forecast API Error: {e}")
+        print(f"Geocoding API Error: {e}")
+        return None
+
+def get_open_meteo_forecast_message_dict(lat, lon, city_name):
+    """指定された緯度・経度の天気予報を取得し、Flex MessageのJSON辞書を返す関数"""
+    api_url = f"https://api.open-meteo.com/v1/forecast?latitude={lat}&longitude={lon}&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max&timezone=Asia%2FTokyo"
+    try:
+        response = requests.get(api_url)
+        response.raise_for_status()
+        data = response.json()
+        
+        today = data["daily"]
+        date_str = datetime.strptime(today["time"][0], '%Y-%m-%d').strftime('%Y年%m月%d日')
+        temp_max = today["temperature_2m_max"][0]
+        temp_min = today["temperature_2m_min"][0]
+        pop = today["precipitation_probability_max"][0]
+
+        weather_codes = {0:"快晴",1:"晴れ",2:"一部曇",3:"曇り",45:"霧",48:"霧氷",51:"霧雨",53:"霧雨",55:"霧雨",56:"着氷性の霧雨",57:"着氷性の霧雨",61:"小雨",63:"雨",65:"大雨",66:"着氷性の雨",67:"着氷性の雨",71:"小雪",73:"雪",75:"大雪",77:"霧雪",80:"にわか雨",81:"にわか雨",82:"激しいにわか雨",85:"弱いしゅう雪",86:"強いしゅう雪",95:"雷雨",96:"雷雨と雹",99:"雷雨と雹"}
+        weather = weather_codes.get(today["weather_code"][0], "不明")
+
+        flex_message = {"type": "flex", "altText": f"{city_name}の天気予報 (JMAデータ)", "contents": { "type": "bubble", "direction": 'ltr',
+            "header": {"type": "box", "layout": "vertical", "contents": [{"type": "text", "text": "今日の天気予報", "weight": "bold", "size": "xl", "color": "#FFFFFF", "align": "center"}], "backgroundColor": "#5C6BC0", "paddingTop": "12px", "paddingBottom": "12px"},
+            "body": {"type": "box", "layout": "vertical", "spacing": "md", "contents": [
+                {"type": "box", "layout": "vertical", "contents": [
+                    {"type": "text", "text": city_name, "size": "lg", "weight": "bold", "color": "#5C6BC0", "wrap": True},
+                    {"type": "text", "text": date_str, "size": "sm", "color": "#AAAAAA"}]},
+                {"type": "separator", "margin": "md"},
+                {"type": "box", "layout": "vertical", "margin": "lg", "spacing": "sm", "contents": [
+                    {"type": "box", "layout": "baseline", "spacing": "sm", "contents": [{"type": "text", "text": "天気", "color": "#AAAAAA", "size": "sm", "flex": 2}, {"type": "text", "text": weather, "wrap": True, "color": "#666666", "size": "sm", "flex": 5}]},
+                    {"type": "box", "layout": "baseline", "spacing": "sm", "contents": [{"type": "text", "text": "最高気温", "color": "#AAAAAA", "size": "sm", "flex": 2}, {"type": "text", "text": f"{temp_max}°C", "wrap": True, "color": "#666666", "size": "sm", "flex": 5}]},
+                    {"type": "box", "layout": "baseline", "spacing": "sm", "contents": [{"type": "text", "text": "最低気温", "color": "#AAAAAA", "size": "sm", "flex": 2}, {"type": "text", "text": f"{temp_min}°C", "wrap": True, "color": "#666666", "size": "sm", "flex": 5}]},
+                    {"type": "box", "layout": "baseline", "spacing": "sm", "contents": [{"type": "text", "text": "降水確率", "color": "#AAAAAA", "size": "sm", "flex": 2}, {"type": "text", "text": f"{pop}%", "wrap": True, "color": "#666666", "size": "sm", "flex": 5}]}
+                ]}
+            ]}
+        }}
+        return flex_message
+    except Exception as e:
+        print(f"Open-Meteo API Error: {e}")
         return {"type": "text", "text": "天気情報の取得に失敗しました。"}
+
+def send_line_message(token, messages, is_push=False, user_id=None):
+    headers = {"Content-Type": "application/json; charset=UTF-8", "Authorization": f"Bearer {CHANNEL_ACCESS_TOKEN}"}
+    if is_push:
+        url, body = "https://api.line.me/v2/bot/message/push", {"to": user_id, "messages": messages}
+    else:
+        url, body = "https://api.line.me/v2/bot/message/reply", {"replyToken": token, "messages": messages}
+    try:
+        response = requests.post(url, headers=headers, data=json.dumps(body, ensure_ascii=False).encode('utf-8'))
+        response.raise_for_status()
+    except requests.exceptions.RequestException as e:
+        print(f"LINE送信エラー: {e}\n応答内容: {e.response.text if e.response else 'N/A'}")
 
 @app.route("/callback", methods=['POST'])
 def callback():
@@ -113,29 +97,20 @@ def callback():
         abort(400)
     return 'OK'
 
-def start_location_flow(event, flow_type):
-    user_id = event.source.user_id
-    database.set_user_state(user_id, f'{flow_type}_waiting_for_pref')
-    area_data = get_area_data()
-    if not area_data:
-        send_line_message(event.reply_token, [{"type": "text", "text": "地域情報の取得に失敗しました。"}])
-        return
-    pref_names = sorted(list(set([pref.get('title') for pref in area_data.findall('.//pref')])))
-    quick_reply = create_quick_reply_dict(pref_names)
-    reply_message = {"type": "text", "text": "都道府県を選択してください。", "quickReply": quick_reply}
+def start_location_flow(event):
+    database.set_user_state(event.source.user_id, 'waiting_for_location')
+    reply_message = {"type": "text", "text": "通知を受け取りたい地名（例: 大阪市, 近江八幡市）を教えてください。"}
     send_line_message(event.reply_token, [reply_message])
 
 @handler.add(FollowEvent)
 def handle_follow(event):
-    reply_messages = [{"type": "text", "text": "友達追加ありがとうございます！\n下の「通知地点の設定/変更」メニューから、毎日の通知を受け取る地点を登録してください。"}]
-    send_line_message(event.reply_token, reply_messages)
+    reply_message = {"type": "text", "text": "友達追加ありがとうございます！\n下の「通知地点の設定/変更」メニューから、毎日の通知を受け取る地点を登録してください。"}
+    send_line_message(event.reply_token, [reply_message])
 
 @handler.add(PostbackEvent)
 def handle_postback(event):
     if event.postback.data == 'action=register_location':
-        start_location_flow(event, 'register')
-    elif event.postback.data == 'action=lookup_weather':
-        start_location_flow(event, 'lookup')
+        start_location_flow(event)
 
 @handler.add(MessageEvent, message=TextMessageContent)
 def handle_message(event):
@@ -143,48 +118,26 @@ def handle_message(event):
     user_message = event.message.text
     user_state = database.get_user_state(user_id)
     
-    area_data = get_area_data()
-    if not area_data:
-        send_line_message(event.reply_token, [{"type": "text", "text": "地域情報の取得に失敗しました。"}])
-        return
-
-    flow_type, current_step, step_data = None, None, None
-    if user_state and '_waiting_for_' in user_state:
-        flow_type, step_info = user_state.split('_waiting_for_')
-        if ':' in step_info:
-            current_step, step_data = step_info.split(':', 1)
+    if user_state == 'waiting_for_location':
+        coords = get_coords_from_city(user_message)
+        if coords:
+            database.set_user_location(user_id, user_message, coords['lat'], coords['lon'])
+            reply_message = {"type": "text", "text": f"地点を「{user_message}」に設定しました！"}
         else:
-            current_step = step_info
+            reply_message = {"type": "text", "text": f"「{user_message}」が見つかりませんでした。日本の市町村名などで入力してください。"}
+        send_line_message(event.reply_token, [reply_message])
     
-    if current_step == "pref":
-        selected_pref = area_data.find(f".//pref[@title='{user_message}']")
-        if selected_pref:
-            city_names = [city.get('title') for city in selected_pref.findall('city')]
-            quick_reply = create_quick_reply_dict(city_names)
-            database.set_user_state(user_id, f'{flow_type}_waiting_for_city:{user_message}')
-            send_line_message(event.reply_token, [{"type": "text", "text": "最後に都市名を選択してください。", "quickReply": quick_reply}])
+    elif user_message == "今日の天気":
+        city_name, lat, lon = database.get_user_location(user_id)
+        if city_name and lat is not None and lon is not None:
+            forecast_message = get_open_meteo_forecast_message_dict(lat, lon, city_name)
+            send_line_message(event.reply_token, [forecast_message])
         else:
-            send_line_message(event.reply_token, [{"type": "text", "text": "ボタンから正しい都道府県名を選択してください。"}])
-    
-    elif current_step == "city":
-        pref_name = step_data
-        selected_city_element = area_data.find(f".//pref[@title='{pref_name}']/city[@title='{user_message}']")
-        if selected_city_element is not None:
-            city_id = selected_city_element.get('id')
-            city_name = selected_city_element.get('title')
-            
-            if flow_type == 'register':
-                database.set_user_location(user_id, city_name, city_id)
-                send_line_message(event.reply_token, [{"type": "text", "text": f"地点を「{city_name}」に設定しました！"}])
-            elif flow_type == 'lookup':
-                forecast_message = get_livedoor_forecast_message_dict(city_id, city_name)
-                database.set_user_state(user_id, 'normal')
-                send_line_message(event.reply_token, [forecast_message])
-        else:
-            send_line_message(event.reply_token, [{"type": "text", "text": "ボタンから正しい都市名を選択してください。"}])
-    
+            reply_message = {"type": "text", "text": "地点が未登録です。下の「通知地点の設定/変更」から登録してください。"}
+            send_line_message(event.reply_token, [reply_message])
     else:
-        send_line_message(event.reply_token, [{"type": "text", "text": "下のメニューから操作を選択してください。"}])
+        reply_message = {"type": "text", "text": "下のメニューから操作を選択してください。"}
+        send_line_message(event.reply_token, [reply_message])
 
 if __name__ == "__main__":
     app.run(port=5000)
