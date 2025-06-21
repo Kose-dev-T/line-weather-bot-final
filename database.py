@@ -3,17 +3,13 @@ from sqlalchemy import create_engine, text
 
 DATABASE_URL = os.environ.get('DATABASE_URL')
 
-# RenderのURL(postgres://)を、SQLAlchemyがpsycopg2を確実に使うための形式に書き換える
 if DATABASE_URL and DATABASE_URL.startswith("postgres://"):
     DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql+psycopg2://", 1)
 
 engine = create_engine(DATABASE_URL) if DATABASE_URL else None
 
 def init_db():
-    if not engine:
-        print("DATABASE_URL is not set. Skipping DB initialization.")
-        return
-    
+    if not engine: return
     with engine.connect() as connection:
         connection.execute(text('''
             CREATE TABLE IF NOT EXISTS users (
@@ -54,5 +50,5 @@ def set_user_location(user_id, city_name, lat, lon):
 def get_all_users_with_location():
     if not engine: return []
     with engine.connect() as connection:
-        result = connection.execute(text("SELECT user_id, city_name, lat, lon FROM users WHERE city_name IS NOT NULL")).fetchall()
+        result = connection.execute(text("SELECT user_id, city_name, lat, lon FROM users WHERE city_name IS NOT NULL AND lat IS NOT NULL AND lon IS NOT NULL")).fetchall()
         return result

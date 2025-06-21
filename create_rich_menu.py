@@ -1,53 +1,53 @@
 import os
-from linebot.v3.messaging import (
-    Configuration, ApiClient, MessagingApi,
-    RichMenuRequest, RichMenuArea, RichMenuBounds, PostbackAction
-)
-from linebot.v3.messaging import MessagingApiBlob
+import requests
+import json
 from dotenv import load_dotenv
 
 load_dotenv()
 CHANNEL_ACCESS_TOKEN = os.environ.get("LINE_CHANNEL_ACCESS_TOKEN")
-
-configuration = Configuration(access_token=CHANNEL_ACCESS_TOKEN)
-api_client = ApiClient(configuration)
-line_bot_api = MessagingApi(api_client)
-line_bot_blob_api = MessagingApiBlob(api_client)
-
 RICH_MENU_IMAGE_PATH = "rich_menu_image.png"
 
 def create_rich_menu():
-    print("リッチメニューを作成・登録します...")
-    
-    rich_menu_to_create = RichMenuRequest(
-        size={'width': 2500, 'height': 843},
-        selected=False,
-        name="final-text-menu",
-        chat_bar_text="メニュー",
-        areas=[
-            RichMenuArea(
-                bounds=RichMenuBounds(x=0, y=0, width=2500, height=843),
-                action=PostbackAction(label="change_location", data="action=change_location")
-            )
+    print("シンプルなリッチメニューを作成・登録します...")
+
+    rich_menu_body = {
+        "size": {"width": 2500, "height": 843},
+        "selected": False,
+        "name": "simple-change-location-menu",
+        "chatBarText": "地点の変更はこちらから",
+        "areas": [
+            {
+                "bounds": {"x": 0, "y": 0, "width": 2500, "height": 843},
+                "action": {"type": "postback", "label": "地点変更", "data": "action=register_location"}
+            }
         ]
-    )
-    
+    }
+    create_url = "https://api.line.me/v2/bot/richmenu"
+    headers = {"Authorization": f"Bearer {CHANNEL_ACCESS_TOKEN}", "Content-Type": "application/json"}
     try:
-        rich_menu_id_response = line_bot_api.create_rich_menu(rich_menu_request=rich_menu_to_create)
-        rich_menu_id = rich_menu_id_response.rich_menu_id
+        response = requests.post(create_url, headers=headers, data=json.dumps(rich_menu_body))
+        response.raise_for_status()
+        rich_menu_id = response.json().get('richMenuId')
         print(f"リッチメニューの骨組みを作成しました。ID: {rich_menu_id}")
 
+        upload_url = f"https://api-data.line.me/v2/bot/richmenu/{rich_menu_id}/content"
+        headers = {"Authorization": f"Bearer {CHANNEL_ACCESS_TOKEN}", "Content-Type": "image/png"}
         with open(RICH_MENU_IMAGE_PATH, 'rb') as f:
-            image_data = f.read()
-            line_bot_blob_api.set_rich_menu_image(rich_menu_id=rich_menu_id, body=image_data)
+            response = requests.post(upload_url, headers=headers, data=f)
+            response.raise_for_status()
         print("画像をアップロードしました。")
 
-        line_bot_api.set_default_rich_menu(rich_menu_id)
+        set_default_url = "https://api.line.me/v2/bot/user/all/richmenu/" + rich_menu_id
+        headers = {"Authorization": f"Bearer {CHANNEL_ACCESS_TOKEN}"}
+        response = requests.post(set_default_url, headers=headers)
+        response.raise_for_status()
         print("デフォルトリッチメニューとして設定しました。")
-        print("\n★★★ リッチメニューの更新が完了しました！ ★★★")
 
+    except requests.exceptions.RequestException as e:
+        print(f"エラーが発生しました: {e}\n応答内容: {e.response.text}")
     except Exception as e:
-        print(f"エラーが発生しました: {e}")
+        print(f"予期せぬエラーが発生しました: {e}")
+
 
 if __name__ == "__main__":
     if not CHANNEL_ACCESS_TOKEN:
