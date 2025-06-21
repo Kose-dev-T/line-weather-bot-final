@@ -38,48 +38,63 @@ def get_area_data():
             AREA_DATA_CACHE = ET.fromstring(response.content.decode('euc-jp'))
         except Exception:
             AREA_DATA_CACHE = ET.fromstring(response.content.decode('utf-8'))
-        print("地域・都市リストをダウンロード・キャッシュしました。")
+        print("--- [INFO] 地域・都市リストをダウンロード・キャッシュしました。 ---")
         return AREA_DATA_CACHE
     except Exception as e:
-        print(f"地域・都市リストの取得に失敗しました: {e}")
+        print(f"--- [ERROR] 地域・都市リストの取得に失敗しました: {e} ---")
         return None
 
 def create_quick_reply_dict(options):
-    """【修正】選択肢のリストからQuickReplyのJSON辞書を作成する"""
+    """選択肢のリストからQuickReplyのJSON辞書を作成する"""
     if len(options) > 13:
         options = options[:13]
-    
     items = []
     for opt in options:
-        items.append({
-            "type": "action",
-            "action": {
-                "type": "message",
-                "label": opt,
-                "text": opt
-            }
-        })
+        # 選択肢が空文字列でないことを確認
+        if opt:
+            items.append({
+                "type": "action",
+                "action": { "type": "message", "label": opt, "text": opt }
+            })
     return {"items": items}
 
 def reply_to_line(reply_token, text, quick_reply_dict=None):
-    """【修正】LINEにメッセージを返信する関数"""
-    headers = {"Content-Type": "application/json; charset=UTF-8", "Authorization": f"Bearer {CHANNEL_ACCESS_TOKEN}"}
-    
-    message_payload = {
-        "type": "text",
-        "text": text
+    """【デバッグ機能付き】LINEにメッセージを返信する関数"""
+    headers = {
+        "Content-Type": "application/json; charset=UTF-8",
+        "Authorization": f"Bearer {CHANNEL_ACCESS_TOKEN}"
     }
-    if quick_reply_dict:
+    
+    message_payload = {"type": "text", "text": text}
+    if quick_reply_dict and quick_reply_dict.get("items"):
         message_payload["quickReply"] = quick_reply_dict
     
     body = {"replyToken": reply_token, "messages": [message_payload]}
     
+    # --- ▼▼▼ デバッグ機能 ▼▼▼ ---
+    print("--- [DEBUG] Sending reply to LINE API ---")
+    print(f"Request Body: {json.dumps(body, ensure_ascii=False, indent=2)}")
+    # --- ▲▲▲ デバッグ機能 ▲▲▲ ---
+
     try:
         response = requests.post("https://api.line.me/v2/bot/message/reply", headers=headers, data=json.dumps(body, ensure_ascii=False).encode('utf-8'))
+        
+        # --- ▼▼▼ デバッグ機能 ▼▼▼ ---
+        print("--- [DEBUG] Received response from LINE API ---")
+        print(f"Status Code: {response.status_code}")
+        print(f"Response Body: {response.text}")
+        print("-----------------------------------------")
+        # --- ▲▲▲ デバッグ機能 ▲▲▲ ---
+        
         response.raise_for_status()
-        print("LINEへの返信が成功しました。")
+        print("--- [SUCCESS] LINEへの返信が成功しました。 ---")
+
     except requests.exceptions.RequestException as e:
-        print(f"LINE返信エラー: {e}\n応答内容: {e.response.text if e.response else 'N/A'}")
+        print(f"--- [ERROR] LINE返信エラー: {e} ---")
+        if e.response is not None:
+             print(f"--- [ERROR] 応答内容: {e.response.text} ---")
+        else:
+             print("--- [ERROR] 応答内容: レスポンスオブジェクトがありません。---")
 
 @app.route("/callback", methods=['POST'])
 def callback():
@@ -93,6 +108,7 @@ def callback():
 
 def start_location_setting(event):
     """地点登録/変更のフローを開始する関数"""
+    print("--- [INFO] start_location_setting が呼び出されました。---")
     user_id = event.source.user_id
     database.set_user_state(user_id, 'waiting_for_area')
     
@@ -102,16 +118,18 @@ def start_location_setting(event):
         return
 
     area_names = [area.get('title') for area in area_data.findall('.//area')]
-    quick_reply_dict = create_quick_reply_dict(area_names)
-    reply_to_line(event.reply_token, "お住まいのエリアを選択してください。", quick_reply_dict)
+    quick_reply = create_quick_reply_dict(area_names)
+    reply_to_line(event.reply_token, "お住まいのエリアを選択してください。", quick_reply)
 
 # --- イベントごとの処理 ---
 @handler.add(FollowEvent)
 def handle_follow(event):
+    print(f"--- [EVENT] FollowEventを検知 (User ID: {event.source.user_id}) ---")
     start_location_setting(event)
 
 @handler.add(PostbackEvent)
 def handle_postback(event):
+    print(f"--- [EVENT] PostbackEventを検知 (Data: {event.postback.data}) ---")
     if event.postback.data == 'action=change_location':
         start_location_setting(event)
 
@@ -120,6 +138,8 @@ def handle_message(event):
     user_id = event.source.user_id
     user_message = event.message.text
     user_state = database.get_user_state(user_id)
+    
+    print(f"--- [EVENT] MessageEventを検知 (User State: {user_state}, Message: {user_message}) ---")
     
     area_data = get_area_data()
     if not area_data:
@@ -130,22 +150,24 @@ def handle_message(event):
         selected_area = area_data.find(f".//area[@title='{user_message}']")
         if selected_area:
             pref_names = [pref.get('title') for pref in selected_area.findall('pref')]
-            quick_reply_dict = create_quick_reply_dict(pref_names)
+            quick_reply = create_quick_reply_dict(pref_names)
             database.set_user_state(user_id, f'waiting_for_pref:{user_message}')
-            reply_to_line(event.reply_token, "次に都道府県を選択してください。", quick_reply_dict)
+            reply_to_line(event.reply_token, "次に都道府県を選択してください。", quick_reply)
         else:
             reply_to_line(event.reply_token, "ボタンから正しいエリア名を選択してください。")
+
     elif user_state and user_state.startswith('waiting_for_pref:'):
         area_name = user_state.split(':')[1]
         selected_area = area_data.find(f".//area[@title='{area_name}']")
         selected_pref = selected_area.find(f".//pref[@title='{user_message}']") if selected_area else None
         if selected_pref:
             city_names = [city.get('title') for city in selected_pref.findall('city')]
-            quick_reply_dict = create_quick_reply_dict(city_names)
+            quick_reply = create_quick_reply_dict(city_names)
             database.set_user_state(user_id, f'waiting_for_city:{user_message}')
-            reply_to_line(event.reply_token, "最後に都市名を選択してください。", quick_reply_dict)
+            reply_to_line(event.reply_token, "最後に都市名を選択してください。", quick_reply)
         else:
             reply_to_line(event.reply_token, "ボタンから正しい都道府県名を選択してください。")
+
     elif user_state and user_state.startswith('waiting_for_city:'):
         pref_name = user_state.split(':')[1]
         selected_city_element = area_data.find(f".//pref[@title='{pref_name}']/city[@title='{user_message}']")
@@ -156,7 +178,9 @@ def handle_message(event):
             reply_to_line(event.reply_token, f"地点を「{city_name}」に設定しました！\n明日から毎朝、天気予報をお届けします。")
         else:
             reply_to_line(event.reply_token, "ボタンから正しい都市名を選択してください。")
+            
     else:
+        # 通常時は何も返さない（オンデマンド機能は削除）
         reply_to_line(event.reply_token, "メニューの「地点を変更する」から、通知先を設定してください。")
 
 if __name__ == "__main__":
