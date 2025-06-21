@@ -67,18 +67,44 @@ def get_open_meteo_forecast_message_dict(lat, lon, city_name):
         print(f"Open-Meteo API Error: {e}")
         return {"type": "text", "text": "天気情報の取得に失敗しました。"}
 
+# app.py のこの関数を置き換えてください
 def send_line_message(token, messages, is_push=False, user_id=None):
     headers = {"Content-Type": "application/json", "Authorization": f"Bearer {CHANNEL_ACCESS_TOKEN}"}
     if is_push:
         url, body = "https://api.line.me/v2/bot/message/push", {"to": user_id, "messages": messages}
     else:
         url, body = "https://api.line.me/v2/bot/message/reply", {"replyToken": token, "messages": messages}
+    
     try:
-        response = requests.post(url, headers=headers, data=json.dumps(body, ensure_ascii=False).encode('utf-8'))
+        # bodyをUTF-8でエンコード
+        encoded_body = json.dumps(body, ensure_ascii=False).encode('utf-8')
+        
+        response = requests.post(url, headers=headers, data=encoded_body)
+        
+        # raise_for_status() の前にステータスコードを出力
+        print(f"LINE API Response Status: {response.status_code}")
+        
         response.raise_for_status()
-    except requests.exceptions.RequestException as e:
-        print(f"LINE送信エラー: {e}\n応答内容: {e.response.text if e.response else 'N/A'}")
+        print("LINEメッセージの送信に成功しました。")
 
+    except requests.exceptions.RequestException as e:
+        # エラー発生時に、リクエストとレスポンスの詳細を出力
+        print("--- LINE送信エラー発生 ---")
+        print(f"エラータイプ: {type(e)}")
+        print(f"エラー詳細: {e}")
+        if e.response is not None:
+            print(f"HTTPステータスコード: {e.response.status_code}")
+            print(f"応答ヘッダー: {e.response.headers}")
+            print(f"応答内容(text): {e.response.text}")
+        if e.request is not None:
+            print(f"リクエストURL: {e.request.url}")
+            print(f"リクエストヘッダー: {e.request.headers}")
+            # リクエストボディはバイト列なのでデコードして表示
+            print(f"リクエストボディ: {e.request.body.decode('utf-8') if e.request.body else 'N/A'}")
+        print("--- エラー情報ここまで ---")
+
+    except Exception as e:
+        print(f"予期せぬエラーが発生しました: {e}")
 @app.route("/callback", methods=['POST'])
 def callback():
     signature = request.headers['X-Line-Signature']
