@@ -5,10 +5,6 @@ from flask import Flask, request, abort
 from linebot.v3 import WebhookHandler
 from linebot.v3.exceptions import InvalidSignatureError
 from linebot.v3.webhooks import MessageEvent, TextMessageContent, FollowEvent, PostbackEvent
-from linebot.v3.messaging import (
-    Configuration, ApiClient, MessagingApi, ReplyMessageRequest, TextMessage,
-    QuickReply, QuickReplyButton, MessageAction
-)
 from datetime import datetime
 from dotenv import load_dotenv
 import database
@@ -39,7 +35,6 @@ def get_area_data():
         response = requests.get("https://weather.tsukumijima.net/primary_area.xml")
         response.raise_for_status()
         try:
-            # XMLの文字コードがEUC-JPの場合を考慮
             AREA_DATA_CACHE = ET.fromstring(response.content.decode('euc-jp'))
         except Exception:
             AREA_DATA_CACHE = ET.fromstring(response.content.decode('utf-8'))
@@ -50,28 +45,44 @@ def get_area_data():
         return None
 
 def create_quick_reply_dict(options):
-    """選択肢のリストからQuickReplyのJSON辞書を作成する"""
+    """【修正】選択肢のリストからQuickReplyのJSON辞書を作成する"""
     if len(options) > 13:
         options = options[:13]
+    
     items = []
     for opt in options:
         if opt:
             items.append({
                 "type": "action",
-                "action": { "type": "message", "label": opt, "text": opt }
+                "action": {
+                    "type": "message",
+                    "label": opt,
+                    "text": opt
+                }
             })
     return {"items": items}
 
 def reply_to_line(reply_token, text, quick_reply_dict=None):
-    """LINEにメッセージを返信する関数"""
-    headers = {"Content-Type": "application/json; charset=UTF-8", "Authorization": f"Bearer {CHANNEL_ACCESS_TOKEN}"}
-    message_payload = {"type": "text", "text": text}
+    """【修正】requestsを直接使い、LINEにメッセージを返信する関数"""
+    headers = {
+        "Content-Type": "application/json; charset=UTF-8",
+        "Authorization": f"Bearer {CHANNEL_ACCESS_TOKEN}"
+    }
+    
+    message_payload = {
+        "type": "text",
+        "text": text
+    }
+    # quick_reply_dictが存在し、かつitemsリストが空でないことを確認
     if quick_reply_dict and quick_reply_dict.get("items"):
         message_payload["quickReply"] = quick_reply_dict
+    
     body = {"replyToken": reply_token, "messages": [message_payload]}
+    
     try:
         response = requests.post("https://api.line.me/v2/bot/message/reply", headers=headers, data=json.dumps(body, ensure_ascii=False).encode('utf-8'))
         response.raise_for_status()
+        print("LINEへの返信が成功しました。")
     except requests.exceptions.RequestException as e:
         print(f"LINE返信エラー: {e}\n応答内容: {e.response.text if e.response else 'N/A'}")
 
@@ -89,12 +100,13 @@ def start_location_setting(event):
     """地点登録/変更のフローを開始する関数"""
     user_id = event.source.user_id
     database.set_user_state(user_id, 'waiting_for_area')
+    
     area_data = get_area_data()
     if not area_data:
         reply_to_line(event.reply_token, "地域情報の取得に失敗しました。")
         return
 
-    # 【修正】XMLのパスをより正確に指定
+    # XMLのパスをより正確に指定
     channel = area_data.find('channel')
     if channel is None:
         reply_to_line(event.reply_token, "地域情報の解析に失敗しました。")
@@ -125,7 +137,6 @@ def handle_message(event):
         reply_to_line(event.reply_token, "地域情報の取得に失敗しました。")
         return
 
-    # 【修正】XMLのパスをより正確に指定
     channel = area_data.find('channel')
     if channel is None:
         reply_to_line(event.reply_token, "地域情報の解析に失敗しました。")
@@ -153,8 +164,7 @@ def handle_message(event):
             reply_to_line(event.reply_token, "ボタンから正しい都道府県名を選択してください。")
     elif user_state and user_state.startswith('waiting_for_city:'):
         pref_name = user_state.split(':')[1]
-        # 【修正】XMLのパスをより正確に指定
-        selected_city_element = channel.find(f"area/pref[@title='{pref_name}']/city[@title='{user_message}']")
+        selected_city_element = channel.find(f".//pref[@title='{pref_name}']/city[@title='{user_message}']")
         if selected_city_element is not None:
             city_id = selected_city_element.get('id')
             city_name = selected_city_element.get('title')
