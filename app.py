@@ -10,6 +10,7 @@ from dotenv import load_dotenv
 import database
 import xml.etree.ElementTree as ET
 
+# --- 初期設定 ---
 load_dotenv()
 app = Flask(__name__)
 with app.app_context():
@@ -20,6 +21,7 @@ CHANNEL_SECRET = os.environ.get("LINE_CHANNEL_SECRET")
 handler = WebhookHandler(CHANNEL_SECRET)
 AREA_DATA_CACHE = None
 
+# --- 補助関数群 ---
 def get_area_data():
     global AREA_DATA_CACHE
     if AREA_DATA_CACHE is not None: return AREA_DATA_CACHE
@@ -38,16 +40,27 @@ def create_quick_reply_dict(options):
     items = [{"type": "action", "action": {"type": "message", "label": opt, "text": opt}} for opt in options[:13]]
     return {"items": items}
 
-def send_line_message(reply_token, messages):
+def send_line_message(token, messages, is_push=False, user_id=None):
+    """requestsを使って、LINEにメッセージを送信する汎用関数"""
     headers = {"Content-Type": "application/json", "Authorization": f"Bearer {CHANNEL_ACCESS_TOKEN}"}
-    body = {"replyToken": reply_token, "messages": messages}
+    
+    if is_push:
+        url = "https://api.line.me/v2/bot/message/push"
+        body = {"to": user_id, "messages": messages}
+    else:
+        url = "https://api.line.me/v2/bot/message/reply"
+        body = {"replyToken": token, "messages": messages}
+
     try:
-        response = requests.post("https://api.line.me/v2/bot/message/reply", headers=headers, data=json.dumps(body, ensure_ascii=False).encode('utf-8'))
+        response = requests.post(url, headers=headers, data=json.dumps(body, ensure_ascii=False).encode('utf-8'))
         response.raise_for_status()
+        print(f"LINEへのメッセージ送信が成功しました。 User: {user_id}, Type: {'Push' if is_push else 'Reply'}")
     except requests.exceptions.RequestException as e:
-        print(f"LINE返信エラー: {e}\n応答内容: {e.response.text if e.response else 'N/A'}")
+        print(f"LINE送信エラー: {e}\n応答内容: {e.response.text if e.response else 'N/A'}")
+
 
 def get_livedoor_forecast_message_dict(city_id, city_name):
+    """指定された都市IDの天気予報を取得し、Flex MessageのJSON辞書を返す"""
     api_url = f"https://weather.tsukumijima.net/api/forecast?city={city_id}"
     try:
         response = requests.get(api_url)
@@ -55,8 +68,10 @@ def get_livedoor_forecast_message_dict(city_id, city_name):
         data = response.json()
         today_forecast = data["forecasts"][0]
         weather = today_forecast["telop"]
-        temp_max = today_forecast["temperature"]["max"]["celsius"] if today_forecast["temperature"]["max"] else "--"
-        temp_min = today_forecast["temperature"]["min"]["celsius"] if today_forecast["temperature"]["min"] else "--"
+        temp_max_obj = today_forecast["temperature"]["max"]
+        temp_min_obj = today_forecast["temperature"]["min"]
+        temp_max = temp_max_obj["celsius"] if temp_max_obj else "--"
+        temp_min = temp_min_obj["celsius"] if temp_min_obj else "--"
         chance_of_rain = " / ".join(today_forecast["chanceOfRain"].values())
         return {
             "type": "flex", "altText": f"{city_name}の天気予報",
@@ -107,11 +122,12 @@ def start_location_flow(event, flow_type):
         return
     pref_names = sorted(list(set([pref.get('title') for pref in area_data.findall('.//pref')])))
     quick_reply = create_quick_reply_dict(pref_names)
-    send_line_message(event.reply_token, [{"type": "text", "text": "都道府県を選択してください。", "quickReply": quick_reply}])
+    reply_message = {"type": "text", "text": "都道府県を選択してください。", "quickReply": quick_reply}
+    send_line_message(event.reply_token, [reply_message])
 
 @handler.add(FollowEvent)
 def handle_follow(event):
-    reply_messages = [{"type": "text", "text": "友達追加ありがとうございます！\n下の「地点の再設定/確認」メニューから、毎日の通知を受け取る地点を登録してください。"}]
+    reply_messages = [{"type": "text", "text": "友達追加ありがとうございます！\n下の「通知地点の設定/変更」メニューから、毎日の通知を受け取る地点を登録してください。"}]
     send_line_message(event.reply_token, reply_messages)
 
 @handler.add(PostbackEvent)
@@ -139,7 +155,7 @@ def handle_message(event):
             current_step, step_data = step_info.split(':', 1)
         else:
             current_step = step_info
-
+    
     if current_step == "pref":
         selected_pref = area_data.find(f".//pref[@title='{user_message}']")
         if selected_pref:
@@ -167,13 +183,6 @@ def handle_message(event):
         else:
             send_line_message(event.reply_token, [{"type": "text", "text": "ボタンから正しい都市名を選択してください。"}])
     
-    elif user_message == "今日の天気":
-        city_name, city_id = database.get_user_location(user_id)
-        if city_id:
-            forecast_message = get_livedoor_forecast_message_dict(city_id, city_name)
-            send_line_message(event.reply_token, [forecast_message])
-        else:
-            start_location_flow(event, 'register')
     else:
         send_line_message(event.reply_token, [{"type": "text", "text": "下のメニューから操作を選択してください。"}])
 
