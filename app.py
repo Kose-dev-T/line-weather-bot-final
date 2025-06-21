@@ -9,17 +9,20 @@ from datetime import datetime
 from dotenv import load_dotenv
 import database
 
+# 環境変数の読み込み
 load_dotenv()
 app = Flask(__name__)
 with app.app_context():
     database.init_db()
 
+# 環境変数から設定を読み込み
 CHANNEL_ACCESS_TOKEN = os.environ.get("LINE_CHANNEL_ACCESS_TOKEN")
 CHANNEL_SECRET = os.environ.get("LINE_CHANNEL_SECRET")
 OPENWEATHER_API_KEY = os.environ.get("OPENWEATHER_API_KEY")
 
 handler = WebhookHandler(CHANNEL_SECRET)
 
+# --- 天気情報取得関連の関数 ---
 def get_coords_from_city(city_name):
     api_url = f"http://api.openweathermap.org/geo/1.0/direct?q={city_name},JP&limit=1&appid={OPENWEATHER_API_KEY}"
     try:
@@ -48,7 +51,7 @@ def get_open_meteo_forecast_message_dict(lat, lon, city_name):
         weather = weather_codes.get(today["weather_code"][0], "不明")
 
         return {
-            "type": "flex", "altText": f"{city_name}の天気予報 (JMAデータ)",
+            "type": "flex", "altText": f"{city_name}の天気予報",
             "contents": { "type": "bubble", "direction": 'ltr',
                 "header": {"type": "box", "layout": "vertical", "contents": [{"type": "text", "text": "今日の天気予報", "weight": "bold", "size": "xl", "color": "#FFFFFF", "align": "center"}], "backgroundColor": "#5C6BC0", "paddingTop": "12px", "paddingBottom": "12px"},
                 "body": {"type": "box", "layout": "vertical", "spacing": "md", "contents": [
@@ -67,7 +70,7 @@ def get_open_meteo_forecast_message_dict(lat, lon, city_name):
         print(f"Open-Meteo API Error: {e}")
         return {"type": "text", "text": "天気情報の取得に失敗しました。"}
 
-# app.py のこの関数を置き換えてください
+# --- LINE Messaging APIとの通信を行う関数 ---
 def send_line_message(token, messages, is_push=False, user_id=None):
     headers = {"Content-Type": "application/json", "Authorization": f"Bearer {CHANNEL_ACCESS_TOKEN}"}
     if is_push:
@@ -76,35 +79,20 @@ def send_line_message(token, messages, is_push=False, user_id=None):
         url, body = "https://api.line.me/v2/bot/message/reply", {"replyToken": token, "messages": messages}
     
     try:
-        # bodyをUTF-8でエンコード
         encoded_body = json.dumps(body, ensure_ascii=False).encode('utf-8')
-        
         response = requests.post(url, headers=headers, data=encoded_body)
-        
-        # raise_for_status() の前にステータスコードを出力
         print(f"LINE API Response Status: {response.status_code}")
-        
         response.raise_for_status()
         print("LINEメッセージの送信に成功しました。")
 
     except requests.exceptions.RequestException as e:
-        # エラー発生時に、リクエストとレスポンスの詳細を出力
         print("--- LINE送信エラー発生 ---")
-        print(f"エラータイプ: {type(e)}")
-        print(f"エラー詳細: {e}")
         if e.response is not None:
             print(f"HTTPステータスコード: {e.response.status_code}")
-            print(f"応答ヘッダー: {e.response.headers}")
             print(f"応答内容(text): {e.response.text}")
-        if e.request is not None:
-            print(f"リクエストURL: {e.request.url}")
-            print(f"リクエストヘッダー: {e.request.headers}")
-            # リクエストボディはバイト列なのでデコードして表示
-            print(f"リクエストボディ: {e.request.body.decode('utf-8') if e.request.body else 'N/A'}")
         print("--- エラー情報ここまで ---")
 
-    except Exception as e:
-        print(f"予期せぬエラーが発生しました: {e}")
+# --- Webhookの受付部分 ---
 @app.route("/callback", methods=['POST'])
 def callback():
     signature = request.headers['X-Line-Signature']
@@ -115,6 +103,7 @@ def callback():
         abort(400)
     return 'OK'
 
+# --- LINEイベントのハンドラ ---
 @handler.add(FollowEvent)
 def handle_follow(event):
     reply_messages = [{"type": "text", "text": "友達追加ありがとうございます！\n下のメニューから「通知地点の変更」をタップして、毎日の通知を受け取る地点を登録してください。"}]
@@ -124,15 +113,11 @@ def handle_follow(event):
 def handle_postback(event):
     user_id = event.source.user_id
     if event.postback.data == 'action=register_location':
-        
-        # 先に返信メッセージを定義
         reply_messages = [{"type": "text", "text": "通知を受け取りたい地名（例: 大阪市, 近江八幡市）を教えてください。"}]
-        
-        # ★★★ 解決策：先に返信する ★★★
+        # 応答速度が原因である可能性を考慮し、先に返信してからDBを更新する
         send_line_message(event.reply_token, reply_messages)
-        
-        # ★★★ その後にデータベースを更新する ★★★
         database.set_user_state(user_id, 'waiting_for_location')
+
 @handler.add(MessageEvent, message=TextMessageContent)
 def handle_message(event):
     user_id = event.source.user_id
@@ -148,7 +133,6 @@ def handle_message(event):
             reply_message = {"type": "text", "text": f"「{user_message}」が見つかりませんでした。日本の市町村名などで入力してください。"}
         send_line_message(event.reply_token, [reply_message])
     else:
-        # 地点登録フロー以外の場合は、オンデマンド検索として機能させる
         coords = get_coords_from_city(user_message)
         if coords:
             forecast_message = get_open_meteo_forecast_message_dict(coords['lat'], coords['lon'], user_message)
@@ -157,5 +141,6 @@ def handle_message(event):
             reply_message = {"type": "text", "text": "地名が見つかりませんでした。メニューの「通知地点の変更」から地点を登録するか、地名を入力して天気を検索できます。"}
             send_line_message(event.reply_token, [reply_message])
 
-    if __name__ == "__main__":
-        app.run(port=5000)
+# --- アプリケーションの実行 ---
+if __name__ == "__main__":
+    app.run(port=5000)
