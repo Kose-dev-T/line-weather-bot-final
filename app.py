@@ -124,53 +124,38 @@ def handle_follow(event):
 def handle_postback(event):
     user_id = event.source.user_id
     if event.postback.data == 'action=register_location':
-        database.set_user_state(user_id, 'waiting_for_location')
+        
+        # 先に返信メッセージを定義
         reply_messages = [{"type": "text", "text": "通知を受け取りたい地名（例: 大阪市, 近江八幡市）を教えてください。"}]
+        
+        # ★★★ 解決策：先に返信する ★★★
         send_line_message(event.reply_token, reply_messages)
-
-@handler.add(MessageEvent, message=TextMessageContent)
-# app.pyのこの関数を、以下のテスト用コードに丸ごと置き換えてください
-
+        
+        # ★★★ その後にデータベースを更新する ★★★
+        database.set_user_state(user_id, 'waiting_for_location')
 @handler.add(MessageEvent, message=TextMessageContent)
 def handle_message(event):
-    # --- ここから診断用テストコード ---
-    # このテストのため、一時的に単純なオウム返しボットにします。
-    try:
-        user_id = event.source.user_id
-        user_message = event.message.text
-        print(f"診断テスト：ユーザー({user_id})からメッセージ受信: {user_message}")
+    user_id = event.source.user_id
+    user_message = event.message.text
+    user_state = database.get_user_state(user_id)
+    
+    if user_state == 'waiting_for_location':
+        coords = get_coords_from_city(user_message)
+        if coords:
+            database.set_user_location(user_id, user_message, coords['lat'], coords['lon'])
+            reply_message = {"type": "text", "text": f"地点を「{user_message}」に設定しました！"}
+        else:
+            reply_message = {"type": "text", "text": f"「{user_message}」が見つかりませんでした。日本の市町村名などで入力してください。"}
+        send_line_message(event.reply_token, [reply_message])
+    else:
+        # 地点登録フロー以外の場合は、オンデマンド検索として機能させる
+        coords = get_coords_from_city(user_message)
+        if coords:
+            forecast_message = get_open_meteo_forecast_message_dict(coords['lat'], coords['lon'], user_message)
+            send_line_message(event.reply_token, [forecast_message])
+        else:
+            reply_message = {"type": "text", "text": "地名が見つかりませんでした。メニューの「通知地点の変更」から地点を登録するか、地名を入力して天気を検索できます。"}
+            send_line_message(event.reply_token, [reply_message])
 
-        # 受け取ったメッセージをそのまま返信します
-        reply_messages = [{"type": "text", "text": f"テスト応答: {user_message}"}]
-        
-        # 以前に修正した詳細ログ出力機能付きの関数で返信を試みます
-        send_line_message(event.reply_token, reply_messages)
-
-    except Exception as e:
-        print(f"診断テスト中にエラーが発生: {e}")
-    # --- 診断用テストコードここまで ---
-
-
-    # 元のコードはテストのため一時的にコメントアウトします
-    # user_id = event.source.user_id
-    # user_message = event.message.text
-    # user_state = database.get_user_state(user_id)
-    # 
-    # if user_state == 'waiting_for_location':
-    #     coords = get_coords_from_city(user_message)
-    #     if coords:
-    #         database.set_user_location(user_id, user_message, coords['lat'], coords['lon'])
-    #         reply_message = {"type": "text", "text": f"地点を「{user_message}」に設定しました！"}
-    #     else:
-    #         reply_message = {"type": "text", "text": f"「{user_message}」が見つかりませんでした。日本の市町村名などで入力してください。"}
-    #     send_line_message(event.reply_token, [reply_message])
-    # else:
-    #     coords = get_coords_from_city(user_message)
-    #     if coords:
-    #         forecast_message = get_open_meteo_forecast_message_dict(coords['lat'], coords['lon'], user_message)
-    #         send_line_message(event.reply_token, [forecast_message])
-    #     else:
-    #         reply_message = {"type": "text", "text": "地名が見つかりませんでした。メニューの「通知地点の変更」から地点を登録するか、地名を入力して天気を検索できます。"}
-    #         send_line_message(event.reply_token, [reply_message])
-if __name__ == "__main__":
-    app.run(port=5000)
+    if __name__ == "__main__":
+        app.run(port=5000)
