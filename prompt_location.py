@@ -2,7 +2,7 @@ import os
 import requests
 import json
 from dotenv import load_dotenv
-import database # database.py をインポート
+import database 
 
 load_dotenv()
 CHANNEL_ACCESS_TOKEN = os.environ.get("LINE_CHANNEL_ACCESS_TOKEN")
@@ -38,10 +38,6 @@ def prompt_unregistered_users_for_location():
     for user_id in unregistered_user_ids:
         print(f"ユーザー({user_id})に地点登録を促すメッセージを送信中...")
         push_to_line(user_id, [message_content])
-        # 必要であれば、ユーザーの状態を 'waiting_for_location' に設定することもできますが、
-        # アプリケーションのメッセージハンドリングが地名入力を常に処理できるなら不要です。
-        # database.set_user_state(user_id, 'waiting_for_location')
-
 
     print("地点未登録ユーザーへのメッセージ送信が完了しました。")
 

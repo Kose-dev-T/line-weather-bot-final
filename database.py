@@ -32,7 +32,6 @@ def set_user_state(user_id, state):
     """ユーザーの状態を設定または更新する関数"""
     if not engine: return
     with engine.connect() as connection:
-        # ユーザーが存在すればstateを更新、存在しなければ新しいユーザーとしてstateと共に作成
         connection.execute(text("""
             INSERT INTO users (user_id, state) VALUES (:user_id, :state)
             ON CONFLICT(user_id) DO UPDATE SET state = :state
@@ -76,7 +75,5 @@ def get_users_without_location():
     """地点情報が登録されていない（city_name, lat, lonのいずれかがNULLの）全ユーザーの情報を取得する関数"""
     if not engine: return []
     with engine.connect() as connection:
-        # city_name, lat, lon のいずれかが NULL のユーザーを取得
         result = connection.execute(text("SELECT user_id FROM users WHERE city_name IS NULL OR lat IS NULL OR lon IS NULL")).fetchall()
-        # fetchall() はタプルのリストを返すので、user_id だけを抽出してリストにする
         return [row[0] for row in result]

@@ -116,14 +116,14 @@ def handle_follow(event):
     database.set_user_state(user_id, 'waiting_for_location')
     
     # 地点登録を促すメッセージを送信
-    reply_messages = [{"type": "text", "text": "友達追加ありがとうございます！\n早速ですが、毎日の天気予報を通知する地点を教えてください。\n（例: 大阪市, 新宿区）"}]
+    reply_messages = [{"type": "text", "text": "友達追加ありがとうございます！\nこのアカウントは毎日0時にあなたの設定した地点の天気予報をお届けします。\n早速ですが、毎日の天気予報を通知する地点を教えてください！\n（例: 大阪市, 新宿区）"}]
     send_line_message(event.reply_token, reply_messages)
 
 @handler.add(PostbackEvent)
 def handle_postback(event):
     user_id = event.source.user_id
     if event.postback.data == 'action=register_location':
-        reply_messages = [{"type": "text", "text": "通知を受け取りたい地名（例: 大阪市, 新宿区）を教えてください。"}]
+        reply_messages = [{"type": "text", "text": "新しく通知を受け取りたい地点（例: 大阪市, 新宿区）を教えてください。"}]
         send_line_message(event.reply_token, reply_messages)
         database.set_user_state(user_id, 'waiting_for_location')
 
