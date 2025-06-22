@@ -41,7 +41,7 @@ cd [リポジトリ名]
 ### 2. 仮想環境の構築と依存関係のインストール
 python -m venv .venv
 source .venv/bin/activate  # macOS/Linux
-# .\.venv\Scripts\activate  # Windows PowerShell
+.\.venv\Scripts\activate  # Windows PowerShell
 pip install -r requirements.txt
 
 ### 3. 環境変数の設定
