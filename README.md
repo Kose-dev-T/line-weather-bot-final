@@ -80,9 +80,9 @@ python daily_notifier.py
 このスクリプトは通常、RenderのCron Jobとして設定されます。
 
 使い方 (ユーザー向け)
-友だち追加: 以下のQRコードからボットを友だち追加してください！
+友だち追加: 以下のリンクからボットを友だち追加してください！
 
-→![alt text](image.png)
+→　https://qr-official.line.me/sid/L/072jsvdr.png
 
 地点設定: 初回メッセージまたはリッチメニューの「地点変更」から、通知を受け取りたい地名（例: 「東京」, 「大阪市」）を送信してください。
 
@@ -98,7 +98,6 @@ Web Service: app.py を実行するWebサービスとしてデプロイします
 PostgreSQL: データベースとして使用します。
 
 Cron Job: daily_notifier.py を実行するためのCron Jobを設定します。
-
 デプロイ後、LINE DevelopersコンソールのWebhook URLをRenderで発行されたURLに設定することを忘れないでください。
 
 開発における工夫点
