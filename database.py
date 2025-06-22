@@ -71,3 +71,12 @@ def get_all_users_with_location():
     with engine.connect() as connection:
         result = connection.execute(text("SELECT user_id, city_name, lat, lon FROM users WHERE city_name IS NOT NULL AND lat IS NOT NULL AND lon IS NOT NULL")).fetchall()
         return result
+
+def get_users_without_location():
+    """地点情報が登録されていない（city_name, lat, lonのいずれかがNULLの）全ユーザーの情報を取得する関数"""
+    if not engine: return []
+    with engine.connect() as connection:
+        # city_name, lat, lon のいずれかが NULL のユーザーを取得
+        result = connection.execute(text("SELECT user_id FROM users WHERE city_name IS NULL OR lat IS NULL OR lon IS NULL")).fetchall()
+        # fetchall() はタプルのリストを返すので、user_id だけを抽出してリストにする
+        return [row[0] for row in result]
