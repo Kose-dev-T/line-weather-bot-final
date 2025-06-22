@@ -80,8 +80,10 @@ python daily_notifier.py
 このスクリプトは通常、RenderのCron Jobとして設定されます。
 
 使い方 (ユーザー向け)
-友だち追加: LINEでボットを友だち追加してください。
-友達追加はこちらから！（https://qr-official.line.me/sid/L/072jsvdr.png）
+友だち追加: 以下のリンクからボットを友だち追加してください！
+
+→（https://qr-official.line.me/sid/L/072jsvdr.png）
+
 
 地点設定: 初回メッセージまたはリッチメニューの「地点変更」から、通知を受け取りたい地名（例: 「東京」, 「大阪市」）を送信してください。
 
